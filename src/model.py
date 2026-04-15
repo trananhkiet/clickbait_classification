@@ -76,7 +76,7 @@ def load_model(config: Config) -> PreTrainedModel:
 
     kwargs: dict = {
         "trust_remote_code": mcfg.trust_remote_code,
-        "dtype": torch.bfloat16 if config.training.bf16 else torch.float16,
+        "torch_dtype": torch.bfloat16 if config.training.bf16 else torch.float16,
     }
     if bnb_config is not None:
         kwargs["quantization_config"] = bnb_config
