@@ -1,0 +1,156 @@
+# ============================================================
+# MODEL CONFIGURATION
+# ============================================================
+model:
+  # Which base model to fine-tune (HuggingFace model ID)
+  # Recommendations:
+  #   - "Qwen/Qwen2.5-0.5B"    → fastest, ~2GB VRAM, good baseline
+  #   - "Qwen/Qwen2.5-1.5B"    → better accuracy, ~8GB VRAM
+  #   - "google/gemma-2-2b"     → strong multilingual, ~10GB VRAM
+  #   - "vinai/PhoGPT-1B5"     → Vietnamese-specialized, ~8GB VRAM
+  name: "Qwen/Qwen2.5-0.5B"
+  num_labels: 2
+  max_length: 512          # Max token length for input
+  trust_remote_code: true
+
+# ============================================================
+# QUANTIZATION — reduces memory footprint for training/inference
+# ============================================================
+quantization:
+  enabled: true
+  bits: 4                  # 4 or 8. Use 4 for <6GB VRAM devices.
+  quant_type: "nf4"        # "nf4" (recommended) or "fp4"
+  use_double_quant: true   # Nested quantization, saves extra ~0.4GB
+  compute_dtype: "bfloat16"  # "float16" or "bfloat16"
+
+# ============================================================
+# LoRA — Low-Rank Adaptation for parameter-efficient fine-tuning
+# ============================================================
+lora:
+  enabled: true
+  r: 16                    # LoRA rank. Lower = fewer params. Try 8/16/32.
+  alpha: 32                # Scaling factor. Typically 2x of r.
+  dropout: 0.05
+  bias: "none"             # "none", "all", or "lora_only"
+  # Which modules to attach LoRA to (model-specific):
+  #   Qwen2.5:  ["q_proj", "v_proj"]  (minimal) or
+  #             ["q_proj", "k_proj", "v_proj", "o_proj"] (recommended)
+  #   Gemma:    ["q_proj", "v_proj"]
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+  # task_type is set automatically to SEQ_CLS
+
+# ============================================================
+# DATA
+# ============================================================
+data:
+  raw_csv_path: "data/raw/articles.csv"
+  processed_dir: "data/processed"
+  # Input columns used for classification
+  text_columns:
+    - "title"
+    - "lead_paragraph"
+  label_column: "label"
+  label_map:
+    non-clickbait: 0
+    clickbait: 1
+  # Train/Validation/Test split ratios (must sum to 1.0)
+  split_ratios:
+    train: 0.8
+    val: 0.1
+    test: 0.1
+  # Stratified split preserves label distribution
+  stratified: true
+  seed: 42
+
+# ============================================================
+# PROMPT TEMPLATE — how title + paragraph are combined
+# ============================================================
+prompt:
+  template: |
+    Phân loại bài báo sau đây là "clickbait" hoặc "non-clickbait".
+
+    Tiêu đề: {title}
+    Đoạn mở đầu: {lead_paragraph}
+
+    Nhãn:
+  # For sequence classification, we use the template to create input text.
+  # For generative classification (SFT), model generates "clickbait" or "non-clickbait".
+
+# ============================================================
+# TRAINING HYPERPARAMETERS
+# ============================================================
+training:
+  approach: "seq_cls"       # "seq_cls" (SequenceClassification) or "sft" (SFTTrainer generative)
+  output_dir: "outputs"
+  num_epochs: 5
+  per_device_train_batch_size: 8    # Reduce to 2-4 for <6GB VRAM
+  per_device_eval_batch_size: 16
+  gradient_accumulation_steps: 4    # Effective batch = batch_size * grad_accum
+  learning_rate: 2.0e-4             # Common range for LoRA: 1e-4 to 5e-4
+  weight_decay: 0.01
+  warmup_steps: 100                 # ~10% of steps for typical run; replaces deprecated warmup_ratio
+  lr_scheduler_type: "cosine"       # "cosine", "linear", "constant_with_warmup"
+  fp16: false                       # Auto-set based on device. Don't use with bf16.
+  bf16: true                        # Preferred on Ampere+ GPUs and Colab T4.
+  logging_steps: 10
+  eval_strategy: "steps"
+  eval_steps: 50
+  save_strategy: "steps"
+  save_steps: 50
+  save_total_limit: 3
+  load_best_model_at_end: true
+  metric_for_best_model: "f1"
+  greater_is_better: true
+  early_stopping_patience: 3
+  report_to: "none"                 # "tensorboard", "wandb", or "none"
+  seed: 42
+
+# ============================================================
+# DEVICE PROFILES — quick presets for different hardware
+# ============================================================
+# Uncomment ONE profile or ignore to use the settings above.
+# These override specific fields above when activated.
+device_profiles:
+  # --- Google Colab Free Tier (T4 16GB) ---
+  colab_free:
+    quantization.bits: 4
+    training.per_device_train_batch_size: 4
+    training.gradient_accumulation_steps: 8
+    training.bf16: true
+    model.max_length: 256
+
+  # --- Low VRAM (4-6GB, e.g. GTX 1650, MX450) ---
+  low_vram:
+    quantization.bits: 4
+    quantization.use_double_quant: true
+    training.per_device_train_batch_size: 2
+    training.gradient_accumulation_steps: 16
+    model.max_length: 256
+    lora.r: 8
+
+  # --- Medium VRAM (8-12GB, e.g. RTX 3060/3070) ---
+  medium_vram:
+    quantization.bits: 4
+    training.per_device_train_batch_size: 8
+    training.gradient_accumulation_steps: 4
+    model.max_length: 512
+
+  # --- High VRAM (24GB+, e.g. RTX 3090/4090, A100) ---
+  high_vram:
+    quantization.enabled: false
+    training.per_device_train_batch_size: 16
+    training.gradient_accumulation_steps: 2
+    model.max_length: 512
+    lora.r: 32
+
+# ============================================================
+# INFERENCE
+# ============================================================
+inference:
+  checkpoint_path: "outputs/checkpoints/best"   # Path to saved LoRA adapter or merged model
+  batch_size: 32
+  device: "auto"               # "auto", "cuda", "cpu", "mps"
