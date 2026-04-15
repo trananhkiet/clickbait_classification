@@ -32,7 +32,7 @@ def _build_training_args(config: Config) -> TrainingArguments:
         gradient_accumulation_steps=tcfg.gradient_accumulation_steps,
         learning_rate=tcfg.learning_rate,
         weight_decay=tcfg.weight_decay,
-        warmup_ratio=tcfg.warmup_ratio,
+        warmup_steps=tcfg.warmup_steps,
         lr_scheduler_type=tcfg.lr_scheduler_type,
         fp16=tcfg.fp16,
         bf16=tcfg.bf16,
