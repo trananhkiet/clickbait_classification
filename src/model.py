@@ -80,7 +80,7 @@ def load_model(config: Config) -> PreTrainedModel:
     }
     if bnb_config is not None:
         kwargs["quantization_config"] = bnb_config
-        kwargs["device_map"] = "auto"
+        kwargs["device_map"] = {"": 0}  # pin to GPU 0; avoids DataParallel conflict
 
     if config.training.approach == "seq_cls":
         model = AutoModelForSequenceClassification.from_pretrained(
