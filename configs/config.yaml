@@ -8,7 +8,7 @@ model:
   #   - "Qwen/Qwen2.5-1.5B"    → better accuracy, ~8GB VRAM
   #   - "google/gemma-2-2b"     → strong multilingual, ~10GB VRAM
   #   - "vinai/PhoGPT-1B5"     → Vietnamese-specialized, ~8GB VRAM
-  name: "vinai/PhoGPT-1B5"
+  name: "Qwen/Qwen2.5-1.5B"
   num_labels: 2
   max_length: 512          # Max token length for input
   trust_remote_code: true
@@ -41,6 +41,9 @@ lora:
     - "k_proj"
     - "v_proj"
     - "o_proj"
+    - "gate_proj"              # Qwen2.5 MLP — adds expressive power without large param count
+    - "up_proj"
+    - "down_proj"
   # task_type is set automatically to SEQ_CLS
 
 # ============================================================
@@ -120,7 +123,8 @@ device_profiles:
     quantization.bits: 4
     training.per_device_train_batch_size: 4
     training.gradient_accumulation_steps: 8
-    training.bf16: true
+    training.bf16: false       # T4 is Turing arch — no native BF16
+    training.fp16: true        # T4 has native FP16
     model.max_length: 256
 
   # --- Low VRAM (4-6GB, e.g. GTX 1650, MX450) ---
