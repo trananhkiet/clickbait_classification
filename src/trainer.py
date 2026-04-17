@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import torch
+import torch.nn.functional as F
 from transformers import (
     EarlyStoppingCallback,
     PreTrainedModel,
@@ -14,10 +16,25 @@ from transformers import (
 )
 
 from src.config import Config
-from src.data_loader import ClickbaitDataset
+from src.data_loader import ClickbaitDataset, compute_class_weights
 from src.evaluate import compute_metrics
 
 logger = logging.getLogger("clickbait")
+
+
+class WeightedTrainer(Trainer):
+    """Trainer subclass that applies per-class loss weights to handle imbalanced data."""
+
+    def __init__(self, class_weights: torch.Tensor, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.class_weights = class_weights
+
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        labels = inputs.get("labels")
+        outputs = model(**inputs)
+        weights = self.class_weights.to(outputs.logits.device)
+        loss = F.cross_entropy(outputs.logits, labels, weight=weights)
+        return (loss, outputs) if return_outputs else loss
 
 
 def _build_training_args(config: Config) -> TrainingArguments:
@@ -62,15 +79,31 @@ def build_trainer(
     callbacks = [EarlyStoppingCallback(early_stopping_patience=config.training.early_stopping_patience)]
 
     if config.training.approach == "seq_cls":
-        trainer = Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=train_dataset,
-            eval_dataset=val_dataset,
-            processing_class=tokenizer,
-            compute_metrics=compute_metrics,
-            callbacks=callbacks,
-        )
+        if config.training.use_class_weights:
+            class_weights = compute_class_weights(
+                train_dataset.labels.tolist(), config.model.num_labels
+            )
+            logger.info("Class weights: %s", class_weights.tolist())
+            trainer = WeightedTrainer(
+                class_weights=class_weights,
+                model=model,
+                args=training_args,
+                train_dataset=train_dataset,
+                eval_dataset=val_dataset,
+                processing_class=tokenizer,
+                compute_metrics=compute_metrics,
+                callbacks=callbacks,
+            )
+        else:
+            trainer = Trainer(
+                model=model,
+                args=training_args,
+                train_dataset=train_dataset,
+                eval_dataset=val_dataset,
+                processing_class=tokenizer,
+                compute_metrics=compute_metrics,
+                callbacks=callbacks,
+            )
     else:
         # SFT approach — use trl SFTTrainer
         from trl import SFTConfig, SFTTrainer

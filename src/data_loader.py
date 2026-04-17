@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import random
 from pathlib import Path
 
 import pandas as pd
@@ -11,7 +12,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizerBase
 
-from src.config import Config
+from src.config import AugmentationConfig, Config
 
 logger = logging.getLogger("clickbait")
 
@@ -122,6 +123,37 @@ def load_splits(processed_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame, 
 
 
 # ---------------------------------------------------------------------------
+# Text augmentation (EDA-style)
+# ---------------------------------------------------------------------------
+
+
+def _random_deletion(words: list[str], p: float) -> list[str]:
+    if len(words) == 1:
+        return words
+    result = [w for w in words if random.random() > p]
+    return result if result else [random.choice(words)]
+
+
+def _random_swap(words: list[str], n: int) -> list[str]:
+    words = words.copy()
+    for _ in range(n):
+        if len(words) < 2:
+            break
+        i, j = random.sample(range(len(words)), 2)
+        words[i], words[j] = words[j], words[i]
+    return words
+
+
+def augment_text(text: str, aug_cfg: AugmentationConfig) -> str:
+    words = text.split()
+    if not words:
+        return text
+    words = _random_deletion(words, aug_cfg.deletion_prob)
+    words = _random_swap(words, aug_cfg.n_swaps)
+    return " ".join(words)
+
+
+# ---------------------------------------------------------------------------
 # Prompt formatting
 # ---------------------------------------------------------------------------
 
@@ -147,6 +179,7 @@ class ClickbaitDataset(Dataset):
         df: pd.DataFrame,
         tokenizer: PreTrainedTokenizerBase,
         config: Config,
+        augment: bool = False,
     ) -> None:
         self.df = df.reset_index(drop=True)
         self.tokenizer = tokenizer
@@ -158,6 +191,26 @@ class ClickbaitDataset(Dataset):
 
         texts = [format_input(row, template) for _, row in df.iterrows()]
         labels = [label_map[str(row[config.data.label_column])] for _, row in df.iterrows()]
+
+        if augment and config.augmentation.enabled:
+            aug_cfg = config.augmentation
+            if aug_cfg.minority_only:
+                counts: dict[int, int] = {}
+                for lbl in labels:
+                    counts[lbl] = counts.get(lbl, 0) + 1
+                minority_label = min(counts, key=lambda k: counts[k])
+                aug_indices = [i for i, lbl in enumerate(labels) if lbl == minority_label]
+            else:
+                aug_indices = list(range(len(texts)))
+
+            aug_texts = [augment_text(texts[i], aug_cfg) for i in aug_indices]
+            aug_labels = [labels[i] for i in aug_indices]
+            texts = texts + aug_texts
+            labels = labels + aug_labels
+            logger.info(
+                "Augmentation: added %d samples (minority_only=%s). New total: %d",
+                len(aug_texts), aug_cfg.minority_only, len(texts),
+            )
 
         encodings = tokenizer(
             texts,

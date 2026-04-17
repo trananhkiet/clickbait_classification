@@ -84,6 +84,15 @@ prompt:
   # For generative classification (SFT), model generates "clickbait" or "non-clickbait".
 
 # ============================================================
+# AUGMENTATION — EDA-style text augmentation for imbalanced data
+# ============================================================
+augmentation:
+  enabled: false               # Set to true to augment training data
+  deletion_prob: 0.1           # Probability of deleting each word
+  n_swaps: 1                   # Number of random word-pair swaps per sample
+  minority_only: true          # Only augment the minority class (recommended)
+
+# ============================================================
 # TRAINING HYPERPARAMETERS
 # ============================================================
 training:
@@ -109,6 +118,7 @@ training:
   metric_for_best_model: "f1"
   greater_is_better: true
   early_stopping_patience: 2        # Reduced from 3 — stop sooner after peak (saves 25 steps)
+  use_class_weights: false          # Set to true for imbalanced datasets
   report_to: "none"                 # "tensorboard", "wandb", or "none"
   seed: 42
 

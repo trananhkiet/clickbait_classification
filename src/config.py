@@ -75,6 +75,13 @@ class PromptConfig(BaseModel):
     )
 
 
+class AugmentationConfig(BaseModel):
+    enabled: bool = False
+    deletion_prob: float = 0.1   # probability of deleting each word
+    n_swaps: int = 1             # number of random word-pair swaps per sample
+    minority_only: bool = True   # only augment the minority class
+
+
 class TrainingConfig(BaseModel):
     approach: Literal["seq_cls", "sft"] = "seq_cls"
     output_dir: str = "outputs"
@@ -100,6 +107,7 @@ class TrainingConfig(BaseModel):
     early_stopping_patience: int = 3
     report_to: str = "none"
     seed: int = 42
+    use_class_weights: bool = False
 
 
 class InferenceConfig(BaseModel):
@@ -120,6 +128,7 @@ class Config(BaseModel):
     data: DataConfig = Field(default_factory=DataConfig)
     prompt: PromptConfig = Field(default_factory=PromptConfig)
     training: TrainingConfig = Field(default_factory=TrainingConfig)
+    augmentation: AugmentationConfig = Field(default_factory=AugmentationConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     # device_profiles are only for reference; not parsed into typed models
     device_profiles: dict[str, Any] = Field(default_factory=dict)
